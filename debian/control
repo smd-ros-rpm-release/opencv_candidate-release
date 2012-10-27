@@ -1,0 +1,12 @@
+Source: ros-fuerte-opencv-candidate
+Section: misc
+Priority: extra
+Maintainer: Vincent Rabaud <vrabaud@willowgarage.com>
+Build-Depends: debhelper (>= 7.0.50~), ros-fuerte-opencv2,ros-fuerte-catkin,ros-fuerte-libg2o
+Homepage: http://ecto.willowgarage.com
+Standards-Version: 3.9.2
+
+Package: ros-fuerte-opencv-candidate
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, ros-fuerte-opencv2,ros-fuerte-libg2o
+Description: Experimental OpenCV functions
