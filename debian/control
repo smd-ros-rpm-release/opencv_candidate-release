@@ -1,0 +1,12 @@
+Source: ros-groovy-opencv-candidate
+Section: misc
+Priority: extra
+Maintainer: Vincent Rabaud <vrabaud@willowgarage.com>
+Build-Depends: debhelper (>= 7.0.50~), ros-groovy-opencv2,ros-groovy-catkin,ros-groovy-libg2o
+Homepage: 
+Standards-Version: 3.9.2
+
+Package: ros-groovy-opencv-candidate
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, ros-groovy-opencv2,ros-groovy-libg2o
+Description: Experimental OpenCV functions
