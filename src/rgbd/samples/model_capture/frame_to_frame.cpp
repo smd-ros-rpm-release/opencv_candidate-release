@@ -66,9 +66,16 @@ void OnlineCaptureServer::firterDepth(const Mat& src, Mat& dst) const
     dst = src; // TODO maybe bilateral
 }
 
-Mat OnlineCaptureServer::push(const Mat& _image, const Mat& _depth, int frameID)
+bool OnlineCaptureServer::isLoopClosed() const
+{
+  return isClosed;
+}
+
+Mat OnlineCaptureServer::push(const Mat& _image, const Mat& _depth, int frameID, bool *isKeyframePtr)
 {
     CV_Assert(isInitialied);
+    CV_Assert(!isFinalized);
+
     CV_Assert(!normalsComputer.empty());
     CV_Assert(!tableMasker.empty());
     CV_Assert(!odometry.empty());
@@ -210,6 +217,11 @@ Mat OnlineCaptureServer::push(const Mat& _image, const Mat& _depth, int frameID)
         lastKeyframe = currFrame;
     }
 
+    if (isKeyframePtr != 0)
+    {
+      *isKeyframePtr = isKeyframe;
+    }
+
     prevFrame = currFrame;
     prevFrameID = frameID;
     prevPose = pose.clone();
@@ -270,6 +282,7 @@ void OnlineCaptureServer::initialize(const Size& frameResolution)
 cv::Ptr<KeyframesData> OnlineCaptureServer::finalize()
 {
     CV_Assert(isInitialied);
+    CV_Assert(!isFinalized);
 
     if(!closureFrame.empty())
     {
@@ -285,6 +298,8 @@ cv::Ptr<KeyframesData> OnlineCaptureServer::finalize()
 
         cout << "Last keyframe index " << closureFrameID << endl;
         cout << "keyframes count = " << keyframesData->frames.size() << endl;
+
+        isClosed = true;
     }
     else
     {
@@ -292,7 +307,6 @@ cv::Ptr<KeyframesData> OnlineCaptureServer::finalize()
         cout << checkDataMessage << endl;
     }
 
-    isClosed = true;
     isFinalized = true;
 
     return keyframesData;
