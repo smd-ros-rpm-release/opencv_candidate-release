@@ -130,8 +130,8 @@ gen_points_3d(std::vector<Plane>& planes_out, cv::Mat_<unsigned char> &plane_mas
       planes.push_back(px);
     }
   }
-  cv::Mat_<cv::Vec3f> outp(H, W);
-  cv::Mat_<cv::Vec3f> outn(H, W);
+  cv::Mat_ < cv::Vec3f > outp(H, W);
+  cv::Mat_ < cv::Vec3f > outn(H, W);
   plane_mask.create(H, W);
 
   // n  ( r - r_0) = 0
@@ -173,34 +173,68 @@ protected:
     try
     {
       cv::Mat_<unsigned char> plane_mask;
-      for (unsigned char i = 0; i < 2; ++i)
+      for (unsigned char i = 0; i < 3; ++i)
       {
         cv::RgbdNormals::RGBD_NORMALS_METHOD method;
-        if (i == 0)
+        // inner vector: whether it's 1 plane or 3 planes
+        // outer vector: float or double
+        std::vector<std::vector<float> > errors(2);
+        errors[0].resize(2);
+        errors[1].resize(2);
+        switch (i)
         {
-          method = cv::RgbdNormals::RGBD_NORMALS_METHOD_FALS;
-          std::cout << "FALS" << std::endl;
-        }
-        else if (i == 1)
-        {
-          method = cv::RgbdNormals::RGBD_NORMALS_METHOD_SRI;
-          std::cout << "SRI" << std::endl;
+          case 0:
+            method = cv::RgbdNormals::RGBD_NORMALS_METHOD_FALS;
+            std::cout << std::endl << "*** FALS" << std::endl;
+            errors[0][0] = 0.006;
+            errors[0][1] = 0.03;
+            errors[1][0] = 0.0002;
+            errors[1][1] = 0.02;
+            break;
+          case 1:
+            method = cv::RgbdNormals::RGBD_NORMALS_METHOD_LINEMOD;
+            std::cout << std::endl << "*** LINEMOD" << std::endl;
+            errors[0][0] = 0.16;
+            errors[0][1] = 0.20;
+            errors[1][0] = 0.15;
+            errors[1][1] = 0.15;
+            break;
+          case 2:
+            method = cv::RgbdNormals::RGBD_NORMALS_METHOD_SRI;
+            std::cout << std::endl << "*** SRI" << std::endl;
+            errors[0][0] = 0.02;
+            errors[0][1] = 0.04;
+            errors[1][0] = 0.02;
+            errors[1][1] = 0.04;
+            break;
         }
 
         for (unsigned char j = 0; j < 2; ++j)
         {
           int depth = (j % 2 == 0) ? CV_32F : CV_64F;
+          if (depth == CV_32F)
+            std::cout << "* float" << std::endl;
+          else
+            std::cout << "* double" << std::endl;
 
           cv::RgbdNormals normals_computer(H, W, depth, K, 5, method);
+          normals_computer.initialize();
 
           std::vector<Plane> plane_params;
           cv::Mat points3d, ground_normals;
-          gen_points_3d(plane_params, plane_mask, points3d, ground_normals, 1);
-          testit(points3d, ground_normals, normals_computer, 0.08); // 1 plane, continuous scene, very low error..
-          for (int ii = 0; ii < 10; ii++)
+          // 1 plane, continuous scene, very low error..
+          std::cout << "1 plane" << std::endl;
+          for (int ii = 0; ii < 5; ++ii)
           {
-            gen_points_3d(plane_params, plane_mask, points3d, ground_normals, 3); //three planes
-            testit(points3d, ground_normals, normals_computer, 0.08); // 3 discontinuities, more error expected.
+            gen_points_3d(plane_params, plane_mask, points3d, ground_normals, 1);
+            testit(points3d, ground_normals, normals_computer, errors[j][0]);
+          }
+          // 3 discontinuities, more error expected.
+          std::cout << "3 planes" << std::endl;
+          for (int ii = 0; ii < 5; ++ii)
+          {
+            gen_points_3d(plane_params, plane_mask, points3d, ground_normals, 3);
+            testit(points3d, ground_normals, normals_computer, errors[j][1]);
           }
         }
       }
@@ -220,7 +254,17 @@ protected:
   {
     cv::TickMeter tm;
     tm.start();
-    cv::Mat in_normals = normals_computer(points3d);
+    cv::Mat in_normals;
+    if (normals_computer.method() == cv::RgbdNormals::RGBD_NORMALS_METHOD_LINEMOD)
+    {
+      std::vector<cv::Mat> channels;
+      cv::split(points3d, channels);
+      cv::Mat depth;
+      channels[2].convertTo(depth, CV_16U, 1e3);
+      in_normals = normals_computer(cv::Mat_<unsigned short>(depth));
+    }
+    else
+      in_normals = normals_computer(points3d);
     tm.stop();
 
     cv::Mat_<cv::Vec3f> normals, ground_normals;
@@ -242,7 +286,7 @@ protected:
       }
 
     err /= normals.rows * normals.cols;
-    ASSERT_LE(err, thresh)<< "mean diff: " << err << " thresh: " << thresh << std::endl;
+    ASSERT_LE(err, thresh) << "mean diff: " << err << " thresh: " << thresh << std::endl;
     std::cout << "Average error: " << err << " Speed: " << tm.getTimeMilli() << " ms" << std::endl;
   }
 };
@@ -334,7 +378,7 @@ protected:
           }
         }
         // Get the best match
-        ASSERT_LE(float(n_max-n_gt)/n_gt, 0.001);
+        ASSERT_LE(float(n_max - n_gt) / n_gt, 0.001);
         // Compare the normals
         cv::Vec3d normal(plane_coefficients[i_max][0], plane_coefficients[i_max][1], plane_coefficients[i_max][2]);
         ASSERT_GE(std::abs(gt_planes[j].n.dot(normal)), 0.95);
