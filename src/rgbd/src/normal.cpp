@@ -184,9 +184,6 @@ namespace
     virtual void
     cache()=0;
 
-    virtual cv::Mat
-    compute(const cv::Mat & points3d, const cv::Mat &r) const=0;
-
     bool
     validate(int rows, int cols, int depth, const cv::Mat &K_ori, int window_size, int method) const
     {
@@ -310,6 +307,7 @@ namespace
 
       return normals;
     }
+
   private:
     cv::Mat_<Vec3T> V_;
     cv::Mat_<Vec9T> M_inv_;
@@ -318,19 +316,21 @@ namespace
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-static void
-accumBilateral(long delta, long i, long j, long * A, long * b, int threshold)
+/** Function that multiplies K_inv by a vector. It is just meant to speed up the product as we know
+ * that K_inv is upper triangular and K_inv(2,2)=1
+ * @param K_inv
+ * @param a
+ * @param b
+ * @param c
+ * @param res
+ */
+template<typename T, typename U>
+void
+multiply_by_K_inv(const cv::Matx<T, 3, 3> & K_inv, U a, U b, U c, cv::Vec<T, 3> &res)
 {
-  long f = std::abs(delta) < threshold ? 1 : 0;
-
-  const long fi = f * i;
-  const long fj = f * j;
-
-  A[0] += fi * i;
-  A[1] += fi * j;
-  A[3] += fj * j;
-  b[0] += fi * delta;
-  b[1] += fj * delta;
+  res[0] = K_inv(0, 0) * a + K_inv(0, 1) * b + K_inv(0, 2) * c;
+  res[1] = K_inv(1, 1) * b + K_inv(1, 2) * c;
+  res[2] = c;
 }
 
 namespace
@@ -344,6 +344,7 @@ namespace
   {
   public:
     typedef cv::Vec<T, 3> Vec3T;
+    typedef cv::Matx<T, 3, 3> Mat33T;
 
     LINEMOD(int rows, int cols, int window_size, int depth, const cv::Mat &K,
             cv::RgbdNormals::RGBD_NORMALS_METHOD method)
@@ -364,80 +365,127 @@ namespace
      * @return
      */
     cv::Mat
-    compute(const cv::Mat& depth_in, const cv::Mat &r) const
+    compute(const cv::Mat& depth_in) const
     {
-      // TODO, deal with float/double depth
-      const cv::Mat_<unsigned short> &depth(depth_in);
-      return compute(depth);
+      switch (depth_in.depth())
+      {
+        case CV_16U:
+        {
+          const cv::Mat_<unsigned short> &depth(depth_in);
+          return computeImpl<unsigned short, long>(depth);
+          break;
+        }
+        case CV_32F:
+        {
+          const cv::Mat_<float> &depth(depth_in);
+          return computeImpl<float, float>(depth);
+          break;
+        }
+        case CV_64F:
+        {
+          const cv::Mat_<double> &depth(depth_in);
+          return computeImpl<double, double>(depth);
+          break;
+        }
+      }
+      return cv::Mat();
     }
 
+  private:
     /** Compute the normals
      * @param r
      * @return
      */
+    template<typename DepthDepth, typename ContainerDepth>
     cv::Mat
-    compute(const cv::Mat_<unsigned short> &depth) const
+    computeImpl(const cv::Mat_<DepthDepth> &depth) const
     {
       cv::Mat_<Vec3T> normals(rows_, cols_);
 
-      const int l_W = cols_;
-      const int l_H = rows_;
-
-      const int l_r = 5; // used to be 7
-      const int l_offset0 = -l_r - l_r * l_W;
-      const int l_offset1 = 0 - l_r * l_W;
-      const int l_offset2 = +l_r - l_r * l_W;
-      const int l_offset3 = -l_r;
-      const int l_offset4 = +l_r;
-      const int l_offset5 = -l_r + l_r * l_W;
-      const int l_offset6 = 0 + l_r * l_W;
-      const int l_offset7 = +l_r + l_r * l_W;
-
-      int difference_threshold = 50;
-      for (int l_y = l_r; l_y < l_H - l_r - 1; ++l_y)
-      {
-        const unsigned short * lp_line = depth[0] + (l_y * l_W + l_r);
-        Vec3T *normal = normals[0] + (l_y * l_W + l_r);
-
-        for (int l_x = l_r; l_x < l_W - l_r - 1; ++l_x)
+      const int r = 5; // used to be 7
+      const int sample_step = r;
+      const int square_size = ((2 * r / sample_step) + 1);
+      long offsets[square_size * square_size];
+      long offsets_x[square_size * square_size];
+      long offsets_y[square_size * square_size];
+      long offsets_x_x[square_size * square_size];
+      long offsets_x_y[square_size * square_size];
+      long offsets_y_y[square_size * square_size];
+      for (int j = -r, index = 0; j <= r; j += sample_step)
+        for (int i = -r; i <= r; i += sample_step, ++index)
         {
-          long l_d = lp_line[0];
+          offsets_x[index] = i;
+          offsets_y[index] = j;
+          offsets_x_x[index] = i*i;
+          offsets_x_y[index] = i*j;
+          offsets_y_y[index] = j*j;
+          offsets[index] = j * cols_ + i;
+        }
+
+      // Define K_inv by hand, just for higher accuracy
+      Mat33T K_inv = cv::Matx<T, 3, 3>::eye(), K;
+      K_.copyTo(K);
+      K_inv(0, 0) = 1.0 / K(0, 0);
+      K_inv(0, 1) = -K(0, 1) / (K(0, 0) * K(1, 1));
+      K_inv(0, 2) = (K(0, 1) * K(1, 2) - K(0, 2) * K(1, 1)) / (K(0, 0) * K(1, 1));
+      K_inv(1, 1) = 1 / K(1, 1);
+      K_inv(1, 2) = -K(1, 2) / K(1, 1);
+
+      Vec3T X1_minus_X, X2_minus_X;
+
+      ContainerDepth difference_threshold = 50;
+      for (int y = r; y < rows_ - r - 1; ++y)
+      {
+        const DepthDepth * p_line = reinterpret_cast<const DepthDepth*>(depth.ptr(y, r));
+        Vec3T *normal = normals[0] + (y * cols_ + r);
+
+        for (int x = r; x < cols_ - r - 1; ++x)
+        {
+          DepthDepth d = p_line[0];
 
           // accum
-          long l_A[4];
-          l_A[0] = l_A[1] = l_A[2] = l_A[3] = 0;
-          long l_b[2];
-          l_b[0] = l_b[1] = 0;
-          accumBilateral(lp_line[l_offset0] - l_d, -l_r, -l_r, l_A, l_b, difference_threshold);
-          accumBilateral(lp_line[l_offset1] - l_d, 0, -l_r, l_A, l_b, difference_threshold);
-          accumBilateral(lp_line[l_offset2] - l_d, +l_r, -l_r, l_A, l_b, difference_threshold);
-          accumBilateral(lp_line[l_offset3] - l_d, -l_r, 0, l_A, l_b, difference_threshold);
-          accumBilateral(lp_line[l_offset4] - l_d, +l_r, 0, l_A, l_b, difference_threshold);
-          accumBilateral(lp_line[l_offset5] - l_d, -l_r, +l_r, l_A, l_b, difference_threshold);
-          accumBilateral(lp_line[l_offset6] - l_d, 0, +l_r, l_A, l_b, difference_threshold);
-          accumBilateral(lp_line[l_offset7] - l_d, +l_r, +l_r, l_A, l_b, difference_threshold);
+          long A[4];
+          A[0] = A[1] = A[2] = A[3] = 0;
+          ContainerDepth b[2];
+          b[0] = b[1] = 0;
+          for (unsigned int i = 0; i < square_size * square_size; ++i) {
+            // We need to cast to ContainerDepth in case we have unsigned DepthDepth
+            ContainerDepth delta = ContainerDepth(p_line[offsets[i]]) - ContainerDepth(d);
+            if (std::abs(delta) > difference_threshold)
+               continue;
 
-          // solve
-          long l_det = l_A[0] * l_A[3] - l_A[1] * l_A[1];
-          long l_ddx = l_A[3] * l_b[0] - l_A[1] * l_b[1];
-          long l_ddy = -l_A[1] * l_b[0] + l_A[0] * l_b[1];
+             A[0] += offsets_x_x[i];
+             A[1] += offsets_x_y[i];
+             A[3] += offsets_y_y[i];
+             b[0] += offsets_x[i] * delta;
+             b[1] += offsets_y[i] * delta;
+          }
 
-          /// @todo Magic number 1150 is focal length? This is something like
-          /// f in SXGA mode, but in VGA is more like 530.
-          T l_nx = K_.at < T > (0, 0) * l_ddx;
-          T l_ny = K_.at < T > (1, 1) * l_ddy;
-          T l_nz = -l_det * l_d;
+          // solve for the optimal gradient D of equation (8)
+          long det = A[0] * A[3] - A[1] * A[1];
+          // We should divide the following two by det, but instead, we multiply
+          // X1_minus_X and X2_minus_X by det (which does not matter as we normalize the normals)
+          // Therefore, no division is done: this is only for speedup
+          ContainerDepth dx = (A[3] * b[0] - A[1] * b[1]);
+          ContainerDepth dy = (-A[1] * b[0] + A[0] * b[1]);
 
-          signNormal(l_nx, l_ny, l_nz, *normal);
+          // Compute the dot product
+          //Vec3T X = K_inv * Vec3T(x, y, 1) * depth(y, x);
+          //Vec3T X1 = K_inv * Vec3T(x + 1, y, 1) * (depth(y, x) + dx);
+          //Vec3T X2 = K_inv * Vec3T(x, y + 1, 1) * (depth(y, x) + dy);
+          //Vec3T nor = (X1 - X).cross(X2 - X);
+          multiply_by_K_inv(K_inv, d * det + (x + 1) * dx, y * dx, dx, X1_minus_X);
+          multiply_by_K_inv(K_inv, x * dy, d * det + (y + 1) * dy, dy, X2_minus_X);
+          Vec3T nor = X1_minus_X.cross(X2_minus_X);
+          signNormal(nor, *normal);
 
-          ++lp_line;
+          ++p_line;
           ++normal;
         }
       }
 
       return normals;
     }
-  private:
   };
 }
 
@@ -655,6 +703,14 @@ namespace cv
       return;
     switch (method_)
     {
+      case RGBD_NORMALS_METHOD_LINEMOD:
+      {
+        if (depth_ == CV_32F)
+          delete reinterpret_cast<const LINEMOD<float> *>(rgbd_normals_impl_);
+        else
+          delete reinterpret_cast<const LINEMOD<double> *>(rgbd_normals_impl_);
+        break;
+      }
       case RGBD_NORMALS_METHOD_SRI:
       {
         if (depth_ == CV_32F)
@@ -741,9 +797,27 @@ namespace cv
   {
     CV_Assert(in_points3d.dims == 2);
     // Either we have 3d points or a depth image
-    CV_Assert(
-        ((in_points3d.channels() == 3) && (in_points3d.depth() == CV_32F || in_points3d.depth() == CV_64F)) || (in_points3d.channels()
-            == 1));
+    switch (method_)
+    {
+      case (RGBD_NORMALS_METHOD_FALS):
+      {
+        CV_Assert( ((in_points3d.channels() == 3) && (in_points3d.depth() == CV_32F || in_points3d.depth() == CV_64F)));
+        break;
+      }
+      case RGBD_NORMALS_METHOD_LINEMOD:
+      {
+        CV_Assert(
+            ((in_points3d.channels() == 3) && (in_points3d.depth() == CV_32F || in_points3d.depth() == CV_64F)) || ((in_points3d.channels() == 1) && (in_points3d.depth() == CV_16U || in_points3d.depth() == CV_32F || in_points3d.depth() == CV_64F)));
+        break;
+      }
+      case RGBD_NORMALS_METHOD_SRI:
+      {
+        CV_Assert( ((in_points3d.channels() == 3) && (in_points3d.depth() == CV_32F || in_points3d.depth() == CV_64F)));
+        break;
+      }
+    }
+
+    // Initialize the pimpl
     initialize();
 
     // Precompute something for RGBD_NORMALS_METHOD_SRI and RGBD_NORMALS_METHOD_FALS
@@ -777,10 +851,21 @@ namespace cv
       }
       case RGBD_NORMALS_METHOD_LINEMOD:
       {
-        if (depth_ == CV_32F)
-          normals = reinterpret_cast<const LINEMOD<float> *>(rgbd_normals_impl_)->compute(in_points3d);
+        // Only focus on the depth image for LINEMOD
+        cv::Mat depth;
+        if (in_points3d.channels() == 3)
+        {
+          std::vector<cv::Mat> channels;
+          cv::split(points3d, channels);
+          depth = channels[2];
+        }
         else
-          normals = reinterpret_cast<const LINEMOD<double> *>(rgbd_normals_impl_)->compute(in_points3d);
+          depth = in_points3d;
+
+        if (depth_ == CV_32F)
+          normals = reinterpret_cast<const LINEMOD<float> *>(rgbd_normals_impl_)->compute(depth);
+        else
+          normals = reinterpret_cast<const LINEMOD<double> *>(rgbd_normals_impl_)->compute(depth);
         break;
       }
       case RGBD_NORMALS_METHOD_SRI:
