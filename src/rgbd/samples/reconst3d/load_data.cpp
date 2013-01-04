@@ -1,16 +1,17 @@
-#include "model_capture.hpp"
+#include <dirent.h>
+#include <iostream>
+#include <fstream>
+#include <algorithm>
 
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 
-#include <dirent.h>
-#include <fstream>
-#include <algorithm>
+#include "reconst3d.hpp"
 
 using namespace std;
 using namespace cv;
 
-void readDirectory(const string& directoryName, vector<string>& filenames, bool addDirectoryName)
+static void readDirectory(const string& directoryName, vector<string>& filenames, bool addDirectoryName)
 {
     filenames.clear();
 
@@ -69,7 +70,7 @@ void loadTODLikeBase(const string& dirname, vector<Mat>& bgrImages, vector<Mat>&
 
         // read image
         {
-            string imagePath = dirname + imageFilename;
+            string imagePath = dirname + "/" + imageFilename;
             Mat image = imread(imagePath);
             CV_Assert(!image.empty());
             bgrImages[i] = image;
@@ -77,13 +78,24 @@ void loadTODLikeBase(const string& dirname, vector<Mat>& bgrImages, vector<Mat>&
 
         // read depth
         {
-            const string depthPath = "depth_image_" + imageIndices[i] + ".xml.gz";
             Mat depth;
-            FileStorage fs(dirname + depthPath, FileStorage::READ);
-            CV_Assert(fs.isOpened());
-#if 1
-            fs["depth_image"] >> depth;
-#else
+            string depthPath = "depth_image_" + imageIndices[i] + ".xml.gz";
+            FileStorage fs(dirname + "/" + depthPath, FileStorage::READ);
+            if(fs.isOpened())
+            {
+                fs["depth_image"] >> depth;
+            }
+            else
+            {
+                depthPath = "depth_" + imageIndices[i] + ".png";
+                depth = imread(dirname + "/" + depthPath, -1);
+                CV_Assert(!depth.empty());
+                Mat depth_flt;
+                depth.convertTo(depth_flt, CV_32FC1, 0.001);
+                depth_flt.setTo(std::numeric_limits<float>::quiet_NaN(), depth == 0);
+                depth = depth_flt;
+            }
+#if 0
             cout << "Bilateral iltering" << endl;
             fs["depth_image"] >> depth;
 
