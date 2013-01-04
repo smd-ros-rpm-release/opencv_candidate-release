@@ -121,7 +121,7 @@ namespace cv
     /** Constructor
      * @param rows the number of rows of the depth image normals will be computed on
      * @param cols the number of cols of the depth image normals will be computed on
-     * @param depth the depth of the normals (only CV_32F or CV_64F)
+     * @param depth the depth of the normals (only CV_32F or CV_64F for FALS and SRI, CV_16U for LINEMOD)
      * @param K the calibration matrix to use
      * @param window_size the window size to compute the normals: can only be 1,3,5 or 7
      * @param method one of the methods to use: RGBD_NORMALS_METHOD_SRI, RGBD_NORMALS_METHOD_FALS
@@ -164,6 +164,73 @@ namespace cv
     int window_size_;
     int method_;
     mutable void* rgbd_normals_impl_;
+  };
+
+  /** Object that can clean a noisy depth image
+   */
+  CV_EXPORTS
+  class DepthCleaner: public Algorithm
+  {
+  public:
+    /** NIL method is from
+     * ``Modeling Kinect Sensor Noise for Improved 3d Reconstruction and Tracking``
+     * by C. Nguyen, S. Izadi, D. Lovel
+     */
+    enum DEPTH_CLEANER_METHOD
+    {
+      DEPTH_CLEANER_NIL
+    };
+
+    DepthCleaner()
+        :
+          depth_(0),
+          window_size_(0),
+          method_(DEPTH_CLEANER_NIL),
+          depth_cleaner_impl_(0)
+    {
+    }
+
+    /** Constructor
+     * @param depth the depth of the normals (only CV_32F or CV_64F for FALS and SRI, CV_16U for LINEMOD)
+     * @param window_size the window size to compute the normals: can only be 1,3,5 or 7
+     * @param method one of the methods to use: RGBD_NORMALS_METHOD_SRI, RGBD_NORMALS_METHOD_FALS
+     */
+    DepthCleaner(int depth, int window_size = 5, int method = DEPTH_CLEANER_NIL);
+
+    ~DepthCleaner();
+
+    AlgorithmInfo*
+    info() const;
+
+    /** Given a set of 3d points in a depth image, compute the normals at each point.
+     * @param points a rows x cols x 3 matrix of CV_32F/CV64F or a rows x cols x 1 CV_U16S
+     * @return normals a rows x cols x 3 matrix
+     */
+    cv::Mat
+    operator()(const cv::Mat &points) const;
+
+    /** Initializes some data that is cached for later computation
+     * If that function is not called, it will be called the first time normals are computed
+     */
+    void
+    initialize() const;
+
+    /** Return the current method in that normal computer
+     * @return
+     */
+    int
+    method() const
+    {
+      return method_;
+    }
+  protected:
+    void
+    initialize_cleaner_impl() const;
+
+    int depth_;
+    int window_size_;
+    int method_;
+    mutable void* depth_cleaner_impl_;
   };
 
   /**
@@ -255,11 +322,28 @@ namespace cv
     double sensor_error_a_, sensor_error_b_, sensor_error_c_;
   };
 
+  /** Object that contains a frame data.
+   */
+  CV_EXPORTS struct RgbdFrame
+  {
+      RgbdFrame();
+      RgbdFrame(const Mat& image, const Mat& depth, const Mat& mask=Mat(), const Mat& normals=Mat(), int ID=-1);
+
+      virtual void
+      release();
+
+      int ID;
+      Mat image;
+      Mat depth;
+      Mat mask;
+      Mat normals;
+  };
+
   /** Object that contains a frame data that is possibly needed for the Odometry.
    * It's used for the efficiency (to pass precomputed/cached data of the frame that participates
    * in the Odometry processing several times).
    */
-  CV_EXPORTS struct OdometryFrameCache
+  CV_EXPORTS struct OdometryFrame : public RgbdFrame
   {
     /** These constants are used to set a type of cache which has to be prepared depending on the frame role:
      * srcFrame or dstFrame (see compute method of the Odometry class). For the srcFrame and dstFrame different cache data may be required,
@@ -273,18 +357,14 @@ namespace cv
       CACHE_SRC = 1, CACHE_DST = 2, CACHE_ALL = CACHE_SRC + CACHE_DST
     };
 
-    OdometryFrameCache();
-    OdometryFrameCache(const Mat& image, const Mat& depth, const Mat& mask, int ID = -1);
-    void
+    OdometryFrame();
+    OdometryFrame(const Mat& image, const Mat& depth, const Mat& mask=Mat(), const Mat& normals=Mat(), int ID=-1);
+
+    virtual void
     release();
+
     void
     releasePyramids();
-
-    int ID;
-    Mat image;
-    Mat depth;
-    Mat mask;
-    Mat normals;
 
     vector<Mat> pyramidImage;
     vector<Mat> pyramidDepth;
@@ -369,7 +449,7 @@ namespace cv
      * It is designed to save on computing the frame data (image pyramids, normals, etc.).
      */
     bool
-    compute(OdometryFrameCache& srcFrame, OdometryFrameCache& dstFrame, Mat& Rt, const Mat& initRt = Mat()) const;
+    compute(Ptr<OdometryFrame>& srcFrame, Ptr<OdometryFrame>& dstFrame, Mat& Rt, const Mat& initRt = Mat()) const;
 
     /** Prepare a cache for the frame. The function checks the precomputed/passed data (throws the error if this data
      * does not satisfy) and computes all remaining cache data needed for the frame. Returned size is a resolution
@@ -378,14 +458,14 @@ namespace cv
      * @param cacheType The cache type: CACHE_SRC, CACHE_DST or CACHE_ALL.
      */
     virtual Size
-    prepareFrameCache(OdometryFrameCache& frame, int cacheType) const = 0;
+    prepareFrameCache(Ptr<OdometryFrame>& frame, int cacheType) const;
 
   protected:
     virtual void
     checkParams() const = 0;
 
     virtual bool
-    computeImpl(const OdometryFrameCache& srcFrame, const OdometryFrameCache& dstFrame, Mat& Rt,
+    computeImpl(const Ptr<OdometryFrame>& srcFrame, const Ptr<OdometryFrame>& dstFrame, Mat& Rt,
                 const Mat& initRt) const = 0;
   };
 
@@ -411,7 +491,7 @@ namespace cv
                  const vector<float>& minGradientMagnitudes = vector<float>(), int transformType = RIGID_BODY_MOTION);
 
     virtual Size
-    prepareFrameCache(OdometryFrameCache& frame, int cacheType) const;
+    prepareFrameCache(Ptr<OdometryFrame>& frame, int cacheType) const;
 
     AlgorithmInfo*
     info() const;
@@ -421,7 +501,7 @@ namespace cv
     checkParams() const;
 
     virtual bool
-    computeImpl(const OdometryFrameCache& srcFrame, const OdometryFrameCache& dstFrame, Mat& Rt,
+    computeImpl(const Ptr<OdometryFrame>& srcFrame, const Ptr<OdometryFrame>& dstFrame, Mat& Rt,
                 const Mat& initRt) const;
 
     // Some params have commented desired type. It's due to cv::AlgorithmInfo::addParams does not support it now.
@@ -459,7 +539,7 @@ namespace cv
                 const vector<int>& iterCounts = vector<int>(), int transformType = RIGID_BODY_MOTION);
 
     virtual Size
-    prepareFrameCache(OdometryFrameCache& frame, int cacheType) const;
+    prepareFrameCache(Ptr<OdometryFrame>& frame, int cacheType) const;
 
     AlgorithmInfo*
     info() const;
@@ -469,7 +549,7 @@ namespace cv
     checkParams() const;
 
     virtual bool
-    computeImpl(const OdometryFrameCache& srcFrame, const OdometryFrameCache& dstFrame, Mat& Rt,
+    computeImpl(const Ptr<OdometryFrame>& srcFrame, const Ptr<OdometryFrame>& dstFrame, Mat& Rt,
                 const Mat& initRt) const;
 
     // Some params have commented desired type. It's due to cv::AlgorithmInfo::addParams does not support it now.
@@ -513,7 +593,7 @@ namespace cv
                     int transformType = RIGID_BODY_MOTION);
 
     virtual Size
-    prepareFrameCache(OdometryFrameCache& frame, int cacheType) const;
+    prepareFrameCache(Ptr<OdometryFrame>& frame, int cacheType) const;
 
     AlgorithmInfo*
     info() const;
@@ -523,7 +603,7 @@ namespace cv
     checkParams() const;
 
     virtual bool
-    computeImpl(const OdometryFrameCache& srcFrame, const OdometryFrameCache& dstFrame, Mat& Rt,
+    computeImpl(const Ptr<OdometryFrame>& srcFrame, const Ptr<OdometryFrame>& dstFrame, Mat& Rt,
                 const Mat& initRt) const;
 
     // Some params have commented desired type. It's due to cv::AlgorithmInfo::addParams does not support it now.
