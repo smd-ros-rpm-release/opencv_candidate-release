@@ -46,7 +46,7 @@ target_link_libraries(rgbd_tests ${OpenCV_LIBRARIES}
 
 add_test(rgbd_tests rgbd_tests)
 
-# add the model capture app/library
+# Model capture stuff
 find_package(PCL REQUIRED COMPONENTS io filters visualization features segmentation surface)
 include_directories(SYSTEM ${PCL_INCLUDE_DIRS}
                            /usr/include/suitesparse
@@ -54,39 +54,15 @@ include_directories(SYSTEM ${PCL_INCLUDE_DIRS}
 
 # Find Eigen3
 FIND_PACKAGE(Eigen)
-#FIND_PACKAGE(Cholmod)
-#FIND_PACKAGE(CSparse)
 find_package(libg2o)
 
-include_directories(SYSTEM ${g2o_INCLUDE_DIRS} ${EIGEN_INCLUDE_DIRS} ${CHOLMOD_INCLUDE_DIR} ${CSPARSE_INCLUDE_DIR})
+include_directories(SYSTEM ${EIGEN_INCLUDE_DIRS})
 
-add_executable(model_capture samples/reconst3d/reconst3d.hpp
-                             samples/reconst3d/reconst3d_init.cpp
-
-                             samples/reconst3d/graph_optimizations.hpp
-                             samples/reconst3d/ocv_pcl_convert.hpp
-
-                             samples/reconst3d/capture.cpp
-                             samples/reconst3d/reconstruction.cpp
-                             samples/reconst3d/model.cpp
-
-                             samples/reconst3d/load_data.cpp
-                             samples/reconst3d/mask_data.cpp
-
-                             samples/reconst3d/graph_se3.cpp
-                             samples/reconst3d/graph_se3_rgbd_icp.cpp
-                             samples/reconst3d/graph_se3_rgbd_icp_model.cpp
-
-                             samples/model_capture.cpp
-              )
+# add model capture sample
+include_directories(${reconst3d_dir}/include)
+add_executable(model_capture samples/model_capture.cpp)
 target_link_libraries(model_capture ${OpenCV_LIBRARIES}
                                     opencv_rgbd
-                                    ${PCL_LIBRARIES}
-                                    ${libg2o_LIBRARIES}
-                                    cholmod
-                                    cxsparse
-                                    ${CHOLMOD_LIBRARIES}
-                                    ${CSPARSE_LIBRARY}
+                                    opencv_candidate_reconst3d
 )
-
 set_target_properties(model_capture PROPERTIES COMPILE_FLAGS "-fopenmp" LINK_FLAGS "-fopenmp")
