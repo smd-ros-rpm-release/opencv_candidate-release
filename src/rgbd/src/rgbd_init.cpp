@@ -53,7 +53,7 @@ namespace cv
       obj.info()->addParam(obj, "method", obj.method_))
 
   CV_INIT_ALGORITHM(RgbdPlane, "RGBD.RgbdPlane",
-      obj.info()->addParam(obj, "block_size", obj.block_size_, 40);
+      obj.info()->addParam(obj, "block_size", obj.block_size_, 400);
       obj.info()->addParam(obj, "method", obj.method_);
       obj.info()->addParam(obj, "threshold", obj.threshold_);
       obj.info()->addParam(obj, "sensor_error_a", obj.sensor_error_a_);
@@ -67,6 +67,7 @@ namespace cv
       obj.info()->addParam(obj, "maxDepthDiff", obj.maxDepthDiff);
       obj.info()->addParam(obj, "iterCounts", obj.iterCounts);
       obj.info()->addParam(obj, "minGradientMagnitudes", obj.minGradientMagnitudes);
+      obj.info()->addParam(obj, "maxPointsPart", obj.maxPointsPart);
       obj.info()->addParam(obj, "transformType", obj.transformType);
       obj.info()->addParam(obj, "maxTranslation", obj.maxTranslation);
       obj.info()->addParam(obj, "maxRotation", obj.maxRotation);)
@@ -76,7 +77,7 @@ namespace cv
       obj.info()->addParam(obj, "minDepth", obj.minDepth);
       obj.info()->addParam(obj, "maxDepth", obj.maxDepth);
       obj.info()->addParam(obj, "maxDepthDiff", obj.maxDepthDiff);
-      obj.info()->addParam(obj, "pointsPart", obj.pointsPart);
+      obj.info()->addParam(obj, "maxPointsPart", obj.maxPointsPart);
       obj.info()->addParam(obj, "iterCounts", obj.iterCounts);
       obj.info()->addParam(obj, "transformType", obj.transformType);
       obj.info()->addParam(obj, "maxTranslation", obj.maxTranslation);
@@ -88,7 +89,7 @@ namespace cv
       obj.info()->addParam(obj, "minDepth", obj.minDepth);
       obj.info()->addParam(obj, "maxDepth", obj.maxDepth);
       obj.info()->addParam(obj, "maxDepthDiff", obj.maxDepthDiff);
-      obj.info()->addParam(obj, "pointsPart", obj.pointsPart);
+      obj.info()->addParam(obj, "maxPointsPart", obj.maxPointsPart);
       obj.info()->addParam(obj, "iterCounts", obj.iterCounts);
       obj.info()->addParam(obj, "minGradientMagnitudes", obj.minGradientMagnitudes);
       obj.info()->addParam(obj, "transformType", obj.transformType);
