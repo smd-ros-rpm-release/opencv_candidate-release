@@ -4,6 +4,10 @@
 #include <opencv2/rgbd/rgbd.hpp>
 
 // Read frames from TOD-like base
+void readFrameIndices(const std::string& dirname, std::vector<std::string>& frameIndices);
+
+void loadFrameData(const std::string& dirname, const std::string& frameIndex, cv::Mat& bgrImage, cv::Mat& depth32F);
+
 void loadTODLikeBase(const std::string& dirname, std::vector<cv::Mat>& bgrImages,
                      std::vector<cv::Mat>& depthes32F, std::vector<std::string>* imageFilenames=0);
 
@@ -14,20 +18,36 @@ public:
     static double DEFAULT_Z_FILTER_MIN() {return 0.005;}
     static double DEFAULT_Z_FILTER_MAX() {return 0.5;}
     static double DEFAULT_MIN_TABLE_PART() {return 0.1;}
+    static double DEFAULT_MIN_OVERLAP_RATIO() {return 0.6;}
+    static const int DEFAULT_ERODE_ITERS = 10;
+    static const int DEFAULT_MIN_OBJECT_PART_AREA = 15;
 
     TableMasker();
     bool operator()(const cv::Mat& cloud, const cv::Mat& normals,
                     cv::Mat& tableWithObjectMask, cv::Mat* objectMask=0, cv::Vec4f* planeCoeffs=0) const;
 
+    bool operator()(const cv::Mat& cloud, const cv::Mat& normals, const cv::Mat& prevTableMask,
+                    cv::Mat& tableMask, cv::Mat& objectMask, cv::Vec4f* planeCoeffs=0) const;
+
     cv::AlgorithmInfo*
     info() const;
 
 protected:
+    int findTablePlane(const cv::Mat& cloud, const cv::Mat& prevMask,
+                       const cv::Mat_<uchar>& planesMask, size_t planesCount,
+                       cv::Mat& tableMask) const;
+    cv::Mat calcObjectMask(const cv::Mat& cloud,
+                           const cv::Mat& tableMask, const cv::Vec4f& tableCoeffitients) const;
+
+
     mutable cv::Ptr<cv::RgbdPlane> planeComputer;
 
     double zFilterMin;
     double zFilterMax;
     double minTablePart;
+    double minOverlapRatio;
+    int erodeIters;
+    int minObjectPartArea;
 
     cv::Mat cameraMatrix;
 };
