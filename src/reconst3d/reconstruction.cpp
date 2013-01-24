@@ -21,36 +21,6 @@ preparePosesLinksWithoutRt(const vector<PosesLink>& srcLinks, vector<PosesLink>&
         dstLinks[i] = PosesLink(srcLinks[i].srcIndex, srcLinks[i].dstIndex);
 }
 
-static Mat
-refineObjectMask(const Mat& initObjectMask)
-{
-    vector<vector<Point> > contours;
-    Mat initObjectMaskClone = initObjectMask.clone();
-    findContours(initObjectMaskClone, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE);
-    if(contours.empty())
-        return initObjectMask.clone();
-
-    int maxMaskArea = 0.;
-    int objectMaskIndex = -1;
-    for(size_t i = 0; i < contours.size(); i++)
-    {
-        Mat mask(initObjectMask.size(), CV_8UC1, Scalar(0));
-        drawContours(mask, contours, i, Scalar(255), CV_FILLED, 8);
-
-        int curMaskArea = countNonZero(mask);
-        if(curMaskArea > maxMaskArea)
-        {
-            maxMaskArea = curMaskArea;
-            objectMaskIndex = i;
-        }
-    }
-
-    Mat objectMask(initObjectMask.size(), CV_8UC1, Scalar(0));
-    drawContours(objectMask, contours, objectMaskIndex, Scalar(255), CV_FILLED, 8);
-
-    return objectMask & initObjectMask;
-}
-
 #if 0
 static
 void filterFramesByViewHist(vector<Ptr<RgbdFrame> >& frames,
@@ -218,14 +188,14 @@ prepareFramesForModelRefinement(const Ptr<TrajectoryFrames>& trajectoryFrames, c
         {
             // clone data for used frames because we can modify them
             dstFrames[frameIndex] = new RgbdFrame(srcFrame->image.clone(), srcFrame->depth.clone(),
-                                         refineObjectMask(trajectoryFrames->objectMasks[frameIndex]), srcFrame->normals.clone(),
-                                         srcFrame->ID);
+                                                  trajectoryFrames->objectMasks[frameIndex].clone(), srcFrame->normals.clone(),
+                                                  srcFrame->ID);
         }
         else
         {
             dstFrames[frameIndex] = new RgbdFrame(srcFrame->image, srcFrame->depth,
-                                         refineObjectMask(trajectoryFrames->objectMasks[frameIndex]), srcFrame->normals,
-                                         srcFrame->ID);
+                                                  trajectoryFrames->objectMasks[frameIndex], srcFrame->normals,
+                                                  srcFrame->ID);
         }
     }
 }
