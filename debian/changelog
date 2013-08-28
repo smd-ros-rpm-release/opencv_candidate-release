@@ -1,0 +1,7 @@
+ros-groovy-opencv-candidate (0.1.9-0precise) precise; urgency=high
+
+  * fix dependencies with PCL
+
+ -- Vincent Rabaud <vrabaud@willowgarage.com>  Wed, 28 Aug 2013 20:14:21 +0000
+
+
