@@ -332,11 +332,11 @@ int computeCorrespsFiltered(const Mat& K, const Mat& K_inv, const Mat& Rt,
     const double maxNormalsDiff = 30; // in degrees
     const double maxNormalAngleDev = 75; // in degrees
 
+    const double cosMaxNormalsDiff = std::cos(maxNormalsDiff / 180 * CV_PI);
+    const double cosMaxNormalAngleDev = std::cos(maxNormalAngleDev / 180 * CV_PI);
+
     computeCorresps(K, K_inv, Rt, depth0, validMask0, depth1, selectMask1,
                     maxDepthDiff, corresps);
-
-    CV_Assert(Rt.type() == CV_64FC1);
-    const double * Rt_ptr = Rt.ptr<double>();
 
     int count = 0;
     const Point3f Oz_inv(0,0,-1); // TODO replace by vector to camera position?
@@ -348,8 +348,7 @@ int computeCorrespsFiltered(const Mat& K, const Mat& K_inv, const Mat& Rt,
             if(c != -1)
             {
                 Point3f n0 = normals0.at<Point3f>(v0,u0);
-                n0 *= 1./cv::norm(n0);
-                if(std::abs(n0.ddot(Oz_inv)) < std::cos(maxNormalAngleDev / 180 * CV_PI))
+                if(n0.ddot(Oz_inv) < cosMaxNormalAngleDev)
                 {
                     corresps.at<int>(v0, u0) = -1;
                     continue;
@@ -359,13 +358,9 @@ int computeCorrespsFiltered(const Mat& K, const Mat& K_inv, const Mat& Rt,
                 get2shorts(c, u1, v1);
 
                 const Point3f& n1 = normals1.at<Point3f>(v1,u1);
-                Point3f tn1;
-                tn1.x = n1.x * Rt_ptr[0] + n1.y * Rt_ptr[1] + n1.z * Rt_ptr[2] + Rt_ptr[3];
-                tn1.y = n1.x * Rt_ptr[4] + n1.y * Rt_ptr[5] + n1.z * Rt_ptr[6] + Rt_ptr[7];
-                tn1.z = n1.x * Rt_ptr[8] + n1.y * Rt_ptr[9] + n1.z * Rt_ptr[10] + Rt_ptr[11];
-                tn1 *= 1./cv::norm(tn1);
+                Point3f tn1 = rotatePoint(n1, Rt);
 
-                if(std::abs(n0.ddot(tn1)) < std::cos(maxNormalsDiff / 180 * CV_PI))
+                if(n0.ddot(tn1) < cosMaxNormalsDiff)
                 {
                     corresps.at<int>(v0, u0) = -1;
                     continue;
@@ -386,14 +381,11 @@ int computeCorrespsFiltered(const Mat& K, const Mat& K_inv, const Mat& Rt,
 
 void fillGraphSE3RgbdICP(g2o::SparseOptimizer* optimizer, int pyramidLevel, const std::vector<Ptr<OdometryFrame> >& frames,
                          const std::vector<Mat>& poses, const std::vector<PosesLink>& posesLinks, const Mat& cameraMatrix_64F,
-                         std::vector<int>& frameIndices)
+                         std::vector<int>& frameIndices,
+                         double maxTranslation, double maxRotation, double maxDepthDiff)
 {
     CV_Assert(frames.size() == poses.size());
     g2o::Edge_V_V_RGBD::initializeStaticMatrices(); // TODO: make this more correctly
-
-    const double maxTranslation = 0.20;
-    const double maxRotation = 30;
-    const double maxDepthDiff = 0.07;
 
     fillGraphSE3(optimizer, poses, posesLinks, frameIndices);
 
@@ -432,6 +424,11 @@ void fillGraphSE3RgbdICP(g2o::SparseOptimizer* optimizer, int pyramidLevel, cons
                                                             frames[prevFrameIdx]->pyramidNormals[pyramidLevel],
                                                             frames[currFrameIdx]->pyramidImage[pyramidLevel],
                                                             frames[prevFrameIdx]->pyramidImage[pyramidLevel]);
+
+            const int minCorrespsCount = 100;
+
+            if(correspsCount_icp < minCorrespsCount)
+                continue;
 #define WITH_RGBD 1
 #if WITH_RGBD
             const double rgbdScale = 1./(255 * std::max(cameraMatrix_64F.at<double>(0,0), cameraMatrix_64F.at<double>(1,1)));
@@ -447,6 +444,8 @@ void fillGraphSE3RgbdICP(g2o::SparseOptimizer* optimizer, int pyramidLevel, cons
                                                              frames[prevFrameIdx]->pyramidNormals[pyramidLevel],
                                                              frames[currFrameIdx]->pyramidImage[pyramidLevel],
                                                              frames[prevFrameIdx]->pyramidImage[pyramidLevel]);
+            if(correspsCount_rgbd < minCorrespsCount)
+                continue;
 #endif
 
             cout << currFrameIdx << " -> " << prevFrameIdx << ": icp correspondences count " << correspsCount_icp << endl;
@@ -561,14 +560,15 @@ void refineGraphSE3RgbdICP(const std::vector<Ptr<RgbdFrame> >& _frames,
     CV_Assert(_frames.size() == poses.size());
 
     // TODO: find corresp to main API?
-    vector<float> minGradientMagnitudes(3);
+    const int levelsCount = 3;
+    vector<float> minGradientMagnitudes(levelsCount);
     minGradientMagnitudes[0] = 10;
     minGradientMagnitudes[1] = 5;
     minGradientMagnitudes[2] = 1;
-    vector<int> iterCounts(3);
+    vector<int> iterCounts(levelsCount);
     iterCounts[0] = 3;
     iterCounts[1] = 4;
-    iterCounts[2] = 2;
+    iterCounts[2] = 4;
 
     RgbdICPOdometry odom;
     odom.set("maxPointsPart", pointsPart);
@@ -604,7 +604,17 @@ void refineGraphSE3RgbdICP(const std::vector<Ptr<RgbdFrame> >& _frames,
             g2o::OptimizationAlgorithm* nonLinerSolver = createNonLinearSolver(DEFAULT_NON_LINEAR_SOLVER_TYPE, blockSolver);
             g2o::SparseOptimizer* optimizer = createOptimizer(nonLinerSolver);
 
-            fillGraphSE3RgbdICP(optimizer, level, frames, refinedPoses, posesLinks, pyramidCameraMatrix[level], frameIndices);
+            double maxTranslation = DBL_MAX;
+            double maxRotation = DBL_MAX;
+            double maxDepthDiff = 0.07;
+            if(level == 0)
+            {
+                maxTranslation = 0.20;
+                maxRotation = 30;
+            }
+
+            fillGraphSE3RgbdICP(optimizer, level, frames, refinedPoses, posesLinks, pyramidCameraMatrix[level], frameIndices,
+                                maxTranslation, maxRotation, maxDepthDiff);
 
             optimizer->initializeOptimization();
             const int optIterCount = 1;
