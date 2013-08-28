@@ -66,21 +66,13 @@ int normalMethod = RgbdNormals::RGBD_NORMALS_METHOD_FALS;
 static inline
 void setDefaultIterCounts(Mat& iterCounts)
 {
-    iterCounts.create(1,4,CV_32SC1);
-    iterCounts.at<int>(0) = 7;
-    iterCounts.at<int>(1) = 7;
-    iterCounts.at<int>(2) = 7;
-    iterCounts.at<int>(3) = 10;
+    iterCounts = Mat(Vec4i(7,7,7,10));
 }
 
 static inline
 void setDefaultMinGradientMagnitudes(Mat& minGradientMagnitudes)
 {
-    minGradientMagnitudes.create(1,4,CV_32FC1);
-    minGradientMagnitudes.at<float>(0) = 12.f;
-    minGradientMagnitudes.at<float>(1) = 5.f;
-    minGradientMagnitudes.at<float>(2) = 3.f;
-    minGradientMagnitudes.at<float>(3) = 1.f;
+    minGradientMagnitudes = Mat(Vec4f(10,10,10,10));
 }
 
 static
@@ -824,7 +816,6 @@ bool RGBDICPOdometryImpl(Mat& Rt, const Mat& initRt,
                          double maxTranslation, double maxRotation,
                          int method, int transfromType)
 {
-    const int minOverdetermScale = 20;
     int transformDim = -1;
     CalcRgbdEquationCoeffsPtr rgbdEquationFuncPtr = 0;
     CalcICPEquationCoeffsPtr icpEquationFuncPtr = 0;
@@ -848,6 +839,9 @@ bool RGBDICPOdometryImpl(Mat& Rt, const Mat& initRt,
     default:
         CV_Error(CV_StsBadArg, "Incorrect transformation type");
     }
+
+    const int minOverdetermScale = 20;
+    const int minCorrespsCount = minOverdetermScale * transformDim;
 
     vector<Mat> pyramidCameraMatrix;
     buildPyramidCameraMatrix(cameraMatrix, iterCounts.size(), pyramidCameraMatrix);
@@ -885,11 +879,11 @@ bool RGBDICPOdometryImpl(Mat& Rt, const Mat& initRt,
                                 srcLevelDepth, srcFrame->pyramidMask[level], dstLevelDepth, dstFrame->pyramidNormalsMask[level],
                                 maxDepthDiff, corresps_icp);
 
-            if(corresps_rgbd.rows < minOverdetermScale * transformDim && corresps_icp.rows < minOverdetermScale * transformDim)
+            if(corresps_rgbd.rows < minCorrespsCount && corresps_icp.rows < minCorrespsCount)
                 break;
 
             Mat AtA(transformDim, transformDim, CV_64FC1, Scalar(0)), AtB(transformDim, 1, CV_64FC1, Scalar(0));
-            if(corresps_rgbd.rows >= transformDim)
+            if(corresps_rgbd.rows >= minCorrespsCount)
             {
                 calcRgbdLsmMatrices(srcFrame->pyramidImage[level], srcFrame->pyramidCloud[level], resultRt,
                                     dstFrame->pyramidImage[level], dstFrame->pyramid_dI_dx[level], dstFrame->pyramid_dI_dy[level],
@@ -899,7 +893,7 @@ bool RGBDICPOdometryImpl(Mat& Rt, const Mat& initRt,
                 AtA += AtA_rgbd;
                 AtB += AtB_rgbd;
             }
-            if(corresps_icp.rows >= transformDim)
+            if(corresps_icp.rows >= minCorrespsCount)
             {
                 calcICPLsmMatrices(srcFrame->pyramidCloud[level], resultRt,
                                    dstFrame->pyramidCloud[level], dstFrame->pyramidNormals[level],
@@ -1266,7 +1260,7 @@ Size ICPOdometry::prepareFrameCache(Ptr<OdometryFrame>& frame, int cacheType) co
 void ICPOdometry::checkParams() const
 {
     CV_Assert(maxPointsPart > 0. && maxPointsPart <= 1.);
-    CV_Assert(cameraMatrix.size() == Size(3,3) && cameraMatrix.type() == CV_32FC1);
+    CV_Assert(cameraMatrix.size() == Size(3,3) && (cameraMatrix.type() == CV_32FC1 || cameraMatrix.type() == CV_64FC1));
 }
 
 bool ICPOdometry::computeImpl(const Ptr<OdometryFrame>& srcFrame, const Ptr<OdometryFrame>& dstFrame, Mat& Rt, const Mat& initRt) const
@@ -1381,7 +1375,7 @@ Size RgbdICPOdometry::prepareFrameCache(Ptr<OdometryFrame>& frame, int cacheType
 void RgbdICPOdometry::checkParams() const
 {
     CV_Assert(maxPointsPart > 0. && maxPointsPart <= 1.);
-    CV_Assert(cameraMatrix.size() == Size(3,3) && cameraMatrix.type() == CV_32FC1);
+    CV_Assert(cameraMatrix.size() == Size(3,3) && (cameraMatrix.type() == CV_32FC1 || cameraMatrix.type() == CV_64FC1));
     CV_Assert(minGradientMagnitudes.size() == iterCounts.size() || minGradientMagnitudes.size() == iterCounts.t().size());
 }
 

@@ -1,6 +1,6 @@
 <package>
   <name>opencv_candidate</name>
-  <version>0.1.8</version>
+  <version>0.1.9</version>
   <description>Experimental OpenCV functions</description>
   <author email="erublee@willowgarage.com">Ethan Rublee</author>
   <author email="vrabud@willowgarage.com">Vincent Rabaud</author>
@@ -11,11 +11,11 @@
 
   <build_depend>libg2o</build_depend>
   <build_depend>opencv2</build_depend>
-  <build_depend>pcl</build_depend>
+  <build_depend>pcl_ros</build_depend>
 
   <run_depend>libg2o</run_depend>
   <run_depend>opencv2</run_depend>
-  <run_depend>pcl</run_depend>
+  <run_depend>pcl_ros</run_depend>
 
   <buildtool_depend>catkin</buildtool_depend>
 </package>
