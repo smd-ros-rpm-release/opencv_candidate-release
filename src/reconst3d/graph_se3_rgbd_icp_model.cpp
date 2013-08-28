@@ -139,19 +139,21 @@ void refineGraphSE3RgbdICPModel(std::vector<Ptr<RgbdFrame> >& _frames,
         frames[i] = fr;
     }
 
-    const double maxDepthDiff = 0.002;
-    for(size_t i = 0; i < frames.size(); i++)
-    {
-        frames[i]->releasePyramids();
-        odom.prepareFrameCache(frames[i], OdometryFrame::CACHE_ALL);
-    }
-
     const int iterCount = 3;//7
     const int minCorrespCount = 3;
     const float maxColorDiff = 50;
 
+#if 1 // the RAM is enough
+    const double maxTranslation = DBL_MAX;
+    const double maxRotation = DBL_MAX;
+#else
+    // this version is less accurate because does not set up all corresps for each point
+    // TODO optimize the memory usage
     const double maxTranslation = 0.20;
     const double maxRotation = 30;
+#endif
+    const double maxDepthDiff = 0.005;
+
     for(int iter = 0; iter < iterCount; iter++)
     {
         G2OLinearSolver* linearSolver =  createLinearSolver(DEFAULT_LINEAR_SOLVER_TYPE);
@@ -159,7 +161,8 @@ void refineGraphSE3RgbdICPModel(std::vector<Ptr<RgbdFrame> >& _frames,
         g2o::OptimizationAlgorithm* nonLinerSolver = createNonLinearSolver(DEFAULT_NON_LINEAR_SOLVER_TYPE, blockSolver);
         g2o::SparseOptimizer* optimizer = createOptimizer(nonLinerSolver);
 
-        fillGraphSE3RgbdICP(optimizer, 0, frames, refinedPoses, posesLinks, cameraMatrix_64F, frameIndices);
+        fillGraphSE3RgbdICP(optimizer, 0, frames, refinedPoses, posesLinks, cameraMatrix_64F, frameIndices,
+                            maxTranslation, maxRotation, maxDepthDiff);
 
         vector<Mat> vertexIndices(frameIndices.size());
         int vertexIdx = frames.size();
@@ -249,81 +252,58 @@ void refineGraphSE3RgbdICPModel(std::vector<Ptr<RgbdFrame> >& _frames,
                         if(correspsCounts.at<int>(v0,u0) < minCorrespCount)
                             continue;
 
-                        int u1_, v1_;
-                        get2shorts(c, u1_, v1_);
+                        int u1, v1;
+                        get2shorts(c, u1, v1);
 
                         const Rect rect(0,0,curCloud.cols, curCloud.rows);
-                        const int Rad = 0;
-                        for(int v1 = v1_ - Rad; v1 <= v1_ + Rad; v1++)
+                        CV_Assert(rect.contains(Point(u1, v1)) && !cvIsNaN(prevCloud.at<Point3f>(v1,u1).x));
+                        Eigen::Vector3d pt_prev, pt_cur, norm_prev, norm_cur, global_norm_prev;
                         {
-                            for(int u1 = u1_ - Rad; u1 <= u1_ + Rad; u1++)
-                            {
-                                if(rect.contains(Point(u1, v1)) && !cvIsNaN(prevCloud.at<Point3f>(v1,u1).x) &&
-                                   std::abs(prevCloud.at<Point3f>(v1,u1).z - prevCloud.at<Point3f>(v1_,u1_).z) < maxDepthDiff)
-                                {
-                                    Eigen::Vector3d pt_prev, pt_cur, norm_prev, norm_cur, global_norm_prev;
-                                    {
-                                        pt_prev = cvtPoint_ocv2egn(prevCloud.at<Point3f>(v1,u1));
-                                        norm_prev = cvtPoint_ocv2egn(prevNormals.at<Point3f>(v1,u1));
+                            pt_prev = cvtPoint_ocv2egn(prevCloud.at<Point3f>(v1,u1));
+                            norm_prev = cvtPoint_ocv2egn(prevNormals.at<Point3f>(v1,u1));
 
-                                        vector<Point3f> tp;
-                                        perspectiveTransform(vector<Point3f>(1, prevNormals.at<Point3f>(v1,u1)),
-                                                             tp, refinedPoses[prevFrameIdx]);
-                                        CV_Assert(isValidDepth(tp[0].z));
-                                        tp[0] *= 1./cv::norm(tp[0]);
-                                        global_norm_prev = cvtPoint_ocv2egn(tp[0]);
+                            global_norm_prev = cvtPoint_ocv2egn(rotatePoint(prevNormals.at<Point3f>(v1,u1), refinedPoses[prevFrameIdx]));
+                            pt_cur = cvtPoint_ocv2egn(transformPoint(curCloud.at<Point3f>(v0,u0), refinedPoses[currFrameIdx]));
+                            norm_cur = cvtPoint_ocv2egn(rotatePoint(curNormals.at<Point3f>(v0,u0), refinedPoses[currFrameIdx]));
+                        }
 
-                                        perspectiveTransform(vector<Point3f>(1, curCloud.at<Point3f>(v0,u0)),
-                                                             tp, refinedPoses[currFrameIdx]);
-                                        CV_Assert(isValidDepth(tp[0].z));
-                                        pt_cur = cvtPoint_ocv2egn(tp[0]);
-                                        perspectiveTransform(vector<Point3f>(1, curNormals.at<Point3f>(v0,u0)),
-                                                             tp, refinedPoses[currFrameIdx]);
-                                        tp[0] *= 1./cv::norm(tp[0]);
-                                        CV_Assert(isValidDepth(tp[0].z));
-                                        norm_cur = cvtPoint_ocv2egn(tp[0]);
-                                    }
+                        // add new pose
+                        if(curVertexIndices.at<int>(v0,u0) == -1)
+                        {
+                            g2o::VertexPointXYZ* modelPoint = new g2o::VertexPointXYZ;
+                            modelPoint->setId(vertexIdx);
+                            modelPoint->setEstimate(pt_cur);
+                            modelPoint->setMarginalized(true);
+                            optimizer->addVertex(modelPoint);
 
-                                    // add new pose
-                                    if(curVertexIndices.at<int>(v0,u0) == -1)
-                                    {
-                                        g2o::VertexPointXYZ* modelPoint = new g2o::VertexPointXYZ;
-                                        modelPoint->setId(vertexIdx);
-                                        modelPoint->setEstimate(pt_cur);
-                                        modelPoint->setMarginalized(true);
-                                        optimizer->addVertex(modelPoint);
+                            curVertexIndices.at<int>(v0,u0) = vertexIdx;
+                            vertexIdx++;
+                        }
 
-                                        curVertexIndices.at<int>(v0,u0) = vertexIdx;
-                                        vertexIdx++;
-                                    }
+                        int vidx = curVertexIndices.at<int>(v0,u0);
 
-                                    int vidx = curVertexIndices.at<int>(v0,u0);
+                        g2o::Edge_V_V_GICPLandmark * e = new g2o::Edge_V_V_GICPLandmark();
+                        e->setVertex(0, optimizer->vertex(vidx));
+                        e->setVertex(1, optimizer->vertex(prevFrameIdx));
 
-                                    g2o::Edge_V_V_GICPLandmark * e = new g2o::Edge_V_V_GICPLandmark();
-                                    e->setVertex(0, optimizer->vertex(vidx));
-                                    e->setVertex(1, optimizer->vertex(prevFrameIdx));
+                        g2o::EdgeGICP meas;
+                        meas.pos0 = pt_cur;
+                        meas.pos1 = pt_prev;
+                        meas.normal0 = norm_cur;
+                        meas.normal1 = norm_prev;
 
-                                    g2o::EdgeGICP meas;
-                                    meas.pos0 = pt_cur;
-                                    meas.pos1 = pt_prev;
-                                    meas.normal0 = norm_cur;
-                                    meas.normal1 = norm_prev;
-
-                                    e->setMeasurement(meas);
-                                    meas = e->measurement();
+                        e->setMeasurement(meas);
+                        meas = e->measurement();
 
 //                                    e->information() = meas.prec0(0.01);
-                                    meas.normal1 = global_norm_prev; // to get global covariation
-                                    e->information() = 0.001 * (meas.cov0(1.).inverse() + meas.cov1(1.).inverse());
-                                    meas.normal1 = norm_prev; // set local normal
+                        meas.normal1 = global_norm_prev; // to get global covariation
+                        e->information() = 0.001 * (meas.cov0(1.).inverse() + meas.cov1(1.).inverse());
+                        meas.normal1 = norm_prev; // set local normal
 
-                                    g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
-                                    e->setRobustKernel(rk);
+                        g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+                        e->setRobustKernel(rk);
 
-                                    optimizer->addEdge(e);
-                                }
-                            }
-                        }
+                        optimizer->addEdge(e);
                     }
                 }
             }
@@ -364,10 +344,8 @@ void refineGraphSE3RgbdICPModel(std::vector<Ptr<RgbdFrame> >& _frames,
                         Eigen::Vector3d ep = v->estimate();
                         p.x = ep[0]; p.y = ep[1]; p.z = ep[2];
                     }
-                    vector<Point3f> tp;
-                    perspectiveTransform(vector<Point3f>(1, p), tp, refinedPoses[frameIdx].inv(DECOMP_SVD));
-                    CV_Assert(isValidDepth(tp[0].z));
-                    depth.at<float>(y,x) = tp[0].z;
+                    // TODO use new (x,y) using point projection?
+                    depth.at<float>(y,x) = transformPoint(p, refinedPoses[frameIdx].inv(DECOMP_SVD)).z;
                 }
             }
 
@@ -439,7 +417,8 @@ void refineGraphSE3RgbdICPModel(std::vector<Ptr<RgbdFrame> >& _frames,
 
     for(size_t i = 0; i < frames.size(); i++)
     {
-        Ptr<RgbdFrame> fr = new RgbdFrame(_frames[i]->image, frames[i]->depth, _frames[i]->mask, frames[i]->normals, _frames[i]->ID);
+        Ptr<RgbdFrame> fr = new RgbdFrame(_frames[i]->image, frames[i]->depth, frames[i]->pyramidMask[0],
+                                          frames[i]->normals, _frames[i]->ID);
         _frames[i] = fr;
     }
 }
