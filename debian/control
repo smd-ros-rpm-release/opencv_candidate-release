@@ -1,0 +1,12 @@
+Source: ros-indigo-opencv-candidate
+Section: misc
+Priority: extra
+Maintainer: Vincent Rabaud <vrabaud@willowgarage.com>
+Build-Depends: debhelper (>= 7.0.50~), ros-indigo-catkin, ros-indigo-cv-bridge, ros-indigo-libg2o, ros-indigo-pcl-ros
+Homepage: http://ecto.willowgarage.com
+Standards-Version: 3.9.2
+
+Package: ros-indigo-opencv-candidate
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, ros-indigo-cv-bridge, ros-indigo-libg2o, ros-indigo-pcl-ros
+Description: Experimental OpenCV functions
