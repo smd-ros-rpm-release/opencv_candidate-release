@@ -1,0 +1,40 @@
+ros-groovy-opencv-candidate (0.2.3-0oneiric) oneiric; urgency=high
+
+  * no need for CMake hacks (plus, cholmod is not needed anymore)
+  * Contributors: Vincent Rabaud
+
+ -- Vincent Rabaud <vincent.rabaud@gmail.com>  Sat, 19 Jul 2014 22:00:00 -0000
+
+ros-groovy-opencv-candidate (0.2.2-0oneiric) oneiric; urgency=high
+
+  * do not build reconst3d as it is not used anywhere
+    It's also a way to remove a package that depends on g2o for less maintenance
+  * update url and maintainer's email address
+  * add basic docs
+  * compile under trusty
+  * Contributors: Vincent Rabaud
+
+ -- Vincent Rabaud <vincent.rabaud@gmail.com>  Fri, 18 Jul 2014 22:00:00 -0000
+
+ros-groovy-opencv-candidate (0.2.1-0oneiric) oneiric; urgency=high
+
+  * get distro agnostic OpenCv2 dependency
+  * Contributors: Vincent Rabaud
+
+ -- Vincent Rabaud <vrabaud@willowgarage.com>  Sat, 12 Apr 2014 22:00:00 -0000
+
+ros-groovy-opencv-candidate (0.2.0-0oneiric) oneiric; urgency=high
+
+  * disable tests as the Ubuntu version of OpenCV has a bug with TS for now (cvconfig.h not present)
+  * drop Fuerte support
+  * Contributors: Vincent Rabaud
+
+ -- Vincent Rabaud <vrabaud@willowgarage.com>  Sat, 12 Apr 2014 22:00:00 -0000
+
+ros-groovy-opencv-candidate (0.1.9-0oneiric) oneiric; urgency=high
+
+  * fix dependencies with PCL
+
+ -- Vincent Rabaud <vrabaud@willowgarage.com>  Wed, 28 Aug 2013 21:14:21 +0200
+
+
