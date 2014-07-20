@@ -1,0 +1,12 @@
+Source: ros-hydro-opencv-candidate
+Section: misc
+Priority: extra
+Maintainer: Vincent Rabaud <vincent.rabaud@gmail.com>
+Build-Depends: debhelper (>= 9.0.0), ros-hydro-catkin, ros-hydro-cv-bridge
+Homepage: https://github.com/wg-perception/opencv_candidate
+Standards-Version: 3.9.2
+
+Package: ros-hydro-opencv-candidate
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, ros-hydro-cv-bridge
+Description: Experimental OpenCV functions
